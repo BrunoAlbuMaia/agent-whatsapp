@@ -13,3 +13,8 @@ async def post_conversation(
     print("Mensagem recebida:", payload)
     return request.json()
 
+@router.post("/messages-upsert")
+async def messages_upsert(request: Request):
+    payload = await request.json()
+    print(payload)
+    return payload
