@@ -1,0 +1,74 @@
+from pydantic import BaseModel
+from typing import List, Optional
+
+
+class VeiculoEntity(BaseModel):
+    id: int
+    chassi: str
+    placa: str
+    renavam: str
+    marcaModelo: str
+    codigoMarcaModelo: Optional[int]
+    codigoTipoVeiculo: int
+    descricaoTipoVeiculo: str
+    anoFabricacao: int
+    anoModelo: int
+    codigoCategoriaVeiculo: int
+    descricaoCategoriaVeiculo: str
+    codigoMunicipio: int
+    municipio: str
+    codigoUf: int
+    ufNome: Optional[str]
+    dataAtualizacaoOnline: str
+    dataBaixa: Optional[str]
+    dataImplantacao: Optional[str]
+    listRestricaoVeiculoSaida: Optional[list]
+    proprietario: Optional[dict]
+    arrendatario: Optional[dict]
+
+class DebitoVeiculoEntity(BaseModel):
+    id: int
+    parcela: int
+    vencimento: str
+    exercicio: int
+    vlrPrincipal: float
+    multaPagar: float
+    jurosPagar: float
+    totalPagar: float
+    totalPagarCotaUnica: float
+    totalPagarParcela: float
+    totalDesconto: Optional[float]
+    totalSaldo: float
+    situacao: str
+    codigoSituacao: int
+    tipoSaldo: str
+    codigoReceita: Optional[str]
+    mesReferencia: Optional[int]
+    anoReferencia: Optional[int]
+    dataVencimento: Optional[str]
+    dataCorrecao: Optional[str]
+    origem: Optional[str]
+    pessoa: Optional[str]
+    codigoIndicador: Optional[str]
+    tipoOrigemSistema: Optional[str]
+    valorPrincipalOriginal: Optional[float]
+    valorMultaOriginal: Optional[float]
+    dataInclusao: Optional[str]
+    statusDebito: Optional[str]
+    codigoProdutoServico: Optional[str]
+    valorDescontoSNTV: float
+    percentualDesconto: Optional[float]
+    percentualDescontoParcelamento: float
+    percentualDescontoCotaUnica: float
+    valorDescontoParcelamento: Optional[float]
+    valorDescontoCotaUnica: float
+    valorDescontoMultaRefis: Optional[float]
+    valorDescontoJurosRefis: Optional[float]
+    debitoDividaAtivaOutrosProprietarios: bool
+    leiDescontoSaida: Optional[str]
+    seDebitoLeilao: bool
+    descontosAplicados: List[dict]
+
+class VeiculoDebitosEntity(BaseModel):
+    veiculo: VeiculoEntity
+    debitosDoVeiculo: List[DebitoVeiculoEntity]

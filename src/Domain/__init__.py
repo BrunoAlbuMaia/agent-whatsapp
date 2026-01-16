@@ -1,0 +1,1 @@
+from .entities.veiculoEntity import VeiculoDebitosEntity
