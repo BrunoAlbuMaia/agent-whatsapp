@@ -20,4 +20,4 @@ COPY . .
 
 ENV PORT=80
 
-CMD ["gunicorn", "src.Application.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:80", "--workers", "4"]
+CMD ["gunicorn", "src.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:80", "--workers", "4"]
