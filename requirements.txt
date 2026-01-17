@@ -4,3 +4,5 @@ gunicorn
 pydantic
 pydantic-settings
 dependency_injector
+openai
+python-toon
