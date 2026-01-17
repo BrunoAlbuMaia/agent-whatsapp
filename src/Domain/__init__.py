@@ -1,1 +1,7 @@
 from .entities.veiculoEntity import VeiculoDebitosEntity
+from .entities.messageupsertEntity import MessageupsertEntity
+from .entities.conversationContextEntity import ConversationContext
+from .entities.responsePackageEntity import ResponsePackageEntity
+
+from .interfaces.AgentOrchestratorService import IAgentOrchestratorService
+from .interfaces.WhatsAppOrchestratorsService import IWhatsAppOrchestratorService
