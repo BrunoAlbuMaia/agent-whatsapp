@@ -1,7 +1,11 @@
 import logging
 import json
 from typing import List, Optional
-from src.Domain import ConversationContext,IAgentOrchestratorService,ResponsePackageEntity
+from src.Domain import (
+                            ConversationContext,
+                            IAgentOrchestratorService,
+                            ResponsePackageEntity
+                        )
 from toon import encode
 from .toolExecutorService import ToolExecutor
 from src.Infrastructure import OpenAIClient
@@ -122,6 +126,18 @@ class AgentOrchestratorService(IAgentOrchestratorService):
             messages=decision_messages,
             tools=self.tool_executor.get_available_tools()
         )
+        
+        # 🔥 AQUI: parse da decisão
+        decision_raw = decision_response.get("content", "{}")
+        try:
+            decision_data = json.loads(decision_raw)
+        except json.JSONDecodeError:
+            logger.error("Decision response não é JSON válido")
+            decision_data = {
+                "intent": context.current_intent,
+                "action": "reply",
+                "missing_params": []
+            }
         
         # Se LLM quer usar uma tool
         if decision_response.get("tool_calls"):
