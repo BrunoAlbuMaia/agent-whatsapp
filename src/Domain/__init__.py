@@ -3,5 +3,6 @@ from .entities.messageupsertEntity import MessageupsertEntity
 from .entities.conversationContextEntity import ConversationContext
 from .entities.responsePackageEntity import ResponsePackageEntity
 
-from .interfaces.AgentOrchestratorService import IAgentOrchestratorService
+from .interfaces.IToolExecutorService import IToolExecutorService
 from .interfaces.WhatsAppOrchestratorsService import IWhatsAppOrchestratorService
+from .interfaces.IOpenAiClient import IOpenAiClient

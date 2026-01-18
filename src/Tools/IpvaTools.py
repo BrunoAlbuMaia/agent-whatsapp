@@ -18,17 +18,16 @@ class IpvaTool(BaseTool):
     
     @property
     def description(self) -> str:
-        return """Consulta e emite documentos de pagamento (boleto/PIX) de IPVA de veículos do Ceará.
-        
-Usa esta ferramenta quando o usuário mencionar IPVA, débitos de veículo, boleto de carro, etc.
+        return """
+                   EXCLUSIVO para IPVA do Ceará (SEFAZ-CE).
+                    Esta ferramenta obtém AUTOMATICAMENTE valores, vencimentos e códigos de barras.
+                    
+                    REGRAS DE USO:
+                    1. Requer APENAS 'placa' e 'renavam'. 
+                    2. NUNCA peça ao usuário: valor da parcela, número de contrato, banco ou data de vencimento.
+                    3. Se o usuário quiser 'emitir_boleto', você deve 'consultar' primeiro para obter a lista de parcelas disponíveis, a menos que ele já tenha especificado o número da parcela (ex: 1, 2).
+                """
 
-Parâmetros necessários:
-- placa: Placa do veículo brasileiro
-- renavam: Código renavam de 11 dígitos
-- action: 'consultar' para ver débitos OU 'emitir_boleto' para gerar pagamento
-- parcelas: (opcional) Array com números das parcelas para emitir (ex: [1] ou [1,2,3])
-
-IMPORTANTE: Sempre consulte primeiro antes de emitir boleto."""
     
     def _get_parameters(self) -> dict:
         return {
@@ -36,24 +35,25 @@ IMPORTANTE: Sempre consulte primeiro antes de emitir boleto."""
             "properties": {
                 "placa": {
                     "type": "string",
-                    "description": "Placa do veículo (formato: ABC1234 ou ABC1D23)"
+                    "description": "Placa do veículo. Formato AAA1234. Não peça outros dados aqui."
                 },
                 "renavam": {
                     "type": "string",
-                    "description": "Código renavam do veículo (11 dígitos)"
+                    "description": "Renavam de 11 dígitos. Não confunda com número de contrato ou serviço."
                 },
                 "action": {
                     "type": "string",
                     "enum": ["consultar", "emitir_boleto"],
-                    "description": "Ação a executar: consultar débitos ou emitir boleto/PIX"
+                    "description": "Use 'consultar' para ver o que deve. Use 'emitir_boleto' para gerar o pagamento."
                 },
                 "parcelas": {
                     "type": "array",
                     "items": {"type": "integer"},
-                    "description": "Números das parcelas para emitir (necessário apenas para action=emitir_boleto)"
+                    "description": "Lista de números (ex: [1]). Se o usuário não disser a parcela, NÃO invente valores, apenas execute a consulta."
                 }
             },
-            "required": ["placa", "renavam", "action"]
+            "required": ["placa", "renavam", "action"],
+            "additionalProperties": False  # Isso impede que o modelo tente injetar campos fantasmas
         }
     
     async def execute(

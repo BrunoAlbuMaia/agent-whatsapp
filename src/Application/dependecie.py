@@ -1,19 +1,36 @@
 from dependency_injector import containers,providers
 
-from src.Domain import IAgentOrchestratorService \
-                      ,IWhatsAppOrchestratorService
-from src.Services import AgentOrchestratorService \
-                      ,WhatsAppOrchestratorService
+from src.Domain import (
+                           IWhatsAppOrchestratorService,
+                           IOpenAiClient,
+                           IToolExecutorService
+                        )
+from src.Services import (
+                           WhatsAppOrchestratorService,
+                           ToolExecutor
+                         
+                         )
+
+from src.Infrastructure import (
+                                 OpenAIClient
+                               )
 
 
 class Dependecie(containers.DeclarativeContainer):
-    agentOrchestratorService:providers.Singleton[IAgentOrchestratorService] = \
-    providers.Singleton(
-                          AgentOrchestratorService
+    
+   # Infrastructure
+   openaiClient:providers.Singleton[IOpenAiClient] = \
+   providers.Singleton(
+                        OpenAIClient
                        )
-
-    whatsAppOrchestratorService:providers.Singleton[IWhatsAppOrchestratorService] = \
-    providers.Singleton(
+   
+   #Service
+   toolExecutorService:providers.Singleton[IToolExecutorService] = \
+   providers.Singleton(
+                        ToolExecutor
+                     )
+   whatsAppOrchestratorService:providers.Singleton[IWhatsAppOrchestratorService] = \
+   providers.Singleton(
                           WhatsAppOrchestratorService
                        )
 
