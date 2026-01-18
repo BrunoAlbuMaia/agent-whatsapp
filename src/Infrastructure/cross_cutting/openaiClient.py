@@ -31,7 +31,8 @@ class OpenAIClient:
                 kwargs["tools"] = [
                     {
                         "type": "function",
-                        "function": tool
+                        "function": tool,
+                        "strict": True
                     } for tool in tools
                 ]
                 kwargs["tool_choice"] = "auto"

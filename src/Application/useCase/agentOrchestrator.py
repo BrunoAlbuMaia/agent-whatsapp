@@ -1,120 +1,103 @@
 import logging
 import json
-from typing import List, Optional,Any,Dict
+from typing import List,Any,Dict
 from src.Domain import (
                             ConversationContext,
-                            IAgentOrchestratorService,
+                            IToolExecutorService,
+                            IOpenAiClient,
                             ResponsePackageEntity
                         )
 from toon import encode
-from .toolExecutorService import ToolExecutor
-from src.Infrastructure import OpenAIClient
-# from .responseGenerator import ResponseGenerator
-
 logger = logging.getLogger(__name__)
 
-class AgentOrchestratorService:
-    def __init__(self):
-        self.llm_client = OpenAIClient()
-        self.tool_executor = ToolExecutor()
+class AgentOrchestrator:
+    def __init__(self,tool_excutor:IToolExecutorService,llm_client:IOpenAiClient):
+        self.llm_client = llm_client
+        self.tool_executor = tool_excutor
         self.contexts: dict[str, ConversationContext] = {}
         
         self.FLOW_DECISION_PROMPT = """
-Você é um agente de decisão de fluxos transacionais.
+                                        Você é um agente de decisão de fluxo.
 
-## CONTEXTO ATUAL DO FLUXO
-{flow_context}
+                                        Você NÃO conversa com o usuário.
+                                        Você NÃO executa ações.
+                                        Você APENAS escolhe o próximo passo do sistema.
 
-## HISTÓRICO RECENTE
-{recent_messages}
+                                        A MENSAGEM ENVIADA DO USUARIO FOI:
+                                        {user_message}
 
-## ÚLTIMA MENSAGEM DO USUÁRIO
-{user_message}
+                                        Responda EXCLUSIVAMENTE com JSON válido.
+                                        {{
+                                        "decision": "call_tool | ask_user | reply | complete | new_flow",
+                                        "tool_name": null,
+                                        "tool_params": {{}},
+                                        "resolved_params_update": {{}},
+                                        "missing_params": [],
+                                        "reason": "curta e objetiva"
+                                        }}
+                                        REGRAS:
+                                        - tool_name só pode existir se decision = call_tool
+                                        - Nunca invente dados
+                                        - Nunca escreva texto fora do JSON
+                                        """
 
-## FERRAMENTAS DISPONÍVEIS
-{available_tools}
-
----
-
-RESPONDA **SOMENTE** COM JSON NO FORMATO:
-
-{{
-  "flow_decision": "continue | new_flow | complete | reply",
-  "reasoning": "por que essa decisão",
-  "action": "call_tool | ask_user | reply",
-  "tool_name": "nome da tool (se action=call_tool)",
-  "tool_params": {{}},
-  "resolved_params_update": {{}},
-  "next_step": "próxima etapa do fluxo"
-}}
-
-## REGRAS
-
-1. **Quando chamar tools:**
-   - Usuário pediu uma ação que requer dados externos
-   - Você tem todos os parâmetros necessários
-   - Exemplo: usuário forneceu placa+renavam → chame a tool de consulta
-
-2. **Quando pedir ao usuário:**
-   - Faltam parâmetros obrigatórios para a tool
-   - Usuário não especificou algo importante
-
-3. **Quando apenas responder:**
-   - Conversação casual
-   - Confirmação de algo já feito
-   - Esclarecimento
-
-4. **Use resolved_params_update para extrair dados da mensagem**
-   - Se usuário disse "placa ABC1234", adicione: {{"placa": "ABC1234"}}
-   - Se disse "primeira parcela", adicione: {{"parcela": 1}}
-
-5. **NUNCA invente dados**
-   - Se não sabe um parâmetro, deixe vazio
-   - A tool vai validar e retornar erro se necessário
-
-6. **Continue fluxos existentes:**
-   - Se há fluxo ativo e usuário está respondendo no contexto, use "continue"
-   - Se mudou completamente de assunto, use "new_flow"
-"""
 
         self.RESPONSE_PROMPT = """
-Você responde no WhatsApp de forma natural e direta.
+                                    Você responde ao usuário via WhatsApp de forma clara, objetiva e natural.
 
-## CONTEXTO DO FLUXO
-{flow_context}
+                                    ## CONTEXTO DO FLUXO
+                                    {flow_context}
 
-## RESULTADO DA ÚLTIMA AÇÃO
-{action_result}
+                                    ## RESULTADO DA ÚLTIMA AÇÃO
+                                    {action_result}
 
----
+                                    ---
 
-INSTRUÇÕES:
+                                    INSTRUÇÕES:
 
-- Máximo 600 caracteres
-- Tom natural de WhatsApp
-- Se acabou de executar uma ferramenta, use os resultados para responder
-- Se dados estão faltando, peça naturalmente
-- Não repita informações que o usuário já deu
+                                    - Máximo de 600 caracteres
+                                    - Linguagem simples, direta, estilo WhatsApp
+                                    - Nunca repita dados que o usuário já informou
+                                    - Nunca explique regras internas ou ferramentas
 
-**REGRA CRÍTICA**: 
-- Se você executou uma ferramenta com sucesso, COMUNIQUE o resultado
-- Não pergunte se o usuário quer algo que você acabou de fazer
-- Exemplo: se gerou Pix, diga "Pronto, enviei o Pix!", não "Quer que eu gere?"
-- Nunca diga, que já já vai enviar, pergunte o que ele realmente precisa e EXECUTE
+                                    ## REGRAS DE EXECUÇÃO
 
-Fale como alguém digitando no WhatsApp.
-"""
+                                    SE action_result indicar sucesso:
+                                    - Use tempo PASSADO: "Consultei", "Gerei", "Enviei"
+                                    - Comece com: "Pronto!", "Feito!" ou "Aqui está"
+                                    - NÃO prometa ações futuras
+
+                                    SE action_result indicar falta de dados:
+                                    - Peça SOMENTE o que estiver faltando
+                                    - Seja direto e natural
+
+                                    PROIBIÇÕES:
+                                    - ❌ "Vou verificar"
+                                    - ❌ "Assim que ficar pronto"
+                                    - ❌ "Em processamento"
+                                    - ❌ Qualquer promessa futura
+
+                                    O sistema NÃO possui processamento em background.
+                                    Tudo que aparece como sucesso JÁ FOI EXECUTADO.
+
+                                """
     
     def _get_available_tools_description(self) -> str:
-        """Retorna descrição legível das tools disponíveis"""
         tools = self.tool_executor.get_available_tools()
-        
         descriptions = []
+
         for tool in tools:
-            descriptions.append(f"- {tool['name']}: {tool['description']}")
-        
+            schema = tool["parameters"]
+            descriptions.append(
+                f"""
+                    Tool: {tool['name']}
+                    Required params: {schema.get('required', [])}
+                    Properties: {list(schema.get('properties', {}).keys())}
+                """
+            )
+
         return "\n".join(descriptions)
-    
+
     def __build_flow_decision_messages(
         self, 
         context: ConversationContext, 
@@ -224,7 +207,7 @@ Fale como alguém digitando no WhatsApp.
         
         decision_response = await self.llm_client.chat(
             messages=decision_messages,
-            tools=None  # Não usa function calling aqui, só JSON
+            tools= self.tool_executor.get_available_tools()
         )
         
         try:
@@ -237,11 +220,11 @@ Fale como alguém digitando no WhatsApp.
         
         # ========== 2. ATUALIZA FLUXO ==========
         
-        if decision["flow_decision"] == "new_flow":
+        if decision["decision"] == "new_flow":
             context.start_flow(decision.get("intent", "user_request"))
             logger.info(f"[{sender_id}] 🆕 Novo fluxo iniciado")
         
-        elif decision["flow_decision"] == "continue":
+        elif decision["decision"] == "continue":
             if not context.active_flow:
                 context.start_flow("user_request")
             
@@ -257,7 +240,7 @@ Fale como alguém digitando no WhatsApp.
                 context.active_flow.current_step = next_step
                 logger.info(f"[{sender_id}] 📍 Step: {next_step}")
         
-        elif decision["flow_decision"] == "complete":
+        elif decision["decision"] == "complete":
             context.complete_flow()
             logger.info(f"[{sender_id}] ✅ Fluxo completo")
         
@@ -265,7 +248,7 @@ Fale como alguém digitando no WhatsApp.
         
         action_result = "Nenhuma ação executada"
         
-        if decision.get("action") == "call_tool":
+        if decision["decision"] == "call_tool":
             tool_name = decision.get("tool_name")
             tool_params = decision.get("tool_params", {})
             
