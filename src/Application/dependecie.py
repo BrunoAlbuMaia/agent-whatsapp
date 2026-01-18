@@ -1,18 +1,26 @@
 from dependency_injector import containers,providers
 
 from src.Domain import (
+                           #SERVICES
                            IWhatsAppOrchestratorService,
+                           IToolExecutorService,
+                           IDecisionService,
+
+                           #INFRASTRUCTURE
                            IOpenAiClient,
-                           IToolExecutorService
+                           IAgentPrompts,
+                           
                         )
 from src.Services import (
                            WhatsAppOrchestratorService,
-                           ToolExecutor
+                           ToolExecutor,
+                           DecisionService
                          
                          )
 
 from src.Infrastructure import (
-                                 OpenAIClient
+                                 OpenAIClient,
+                                 AgentPrompts
                                )
 
 
@@ -23,11 +31,21 @@ class Dependecie(containers.DeclarativeContainer):
    providers.Singleton(
                         OpenAIClient
                        )
+   agentsPrompts:providers.Singleton[IAgentPrompts] = \
+   providers.Singleton(
+                        AgentPrompts
+                     )
+
+
    
    #Service
    toolExecutorService:providers.Singleton[IToolExecutorService] = \
    providers.Singleton(
                         ToolExecutor
+                     )
+   decisionService:providers.Singleton[IDecisionService] = \
+   providers.Singleton(
+                        DecisionService
                      )
    whatsAppOrchestratorService:providers.Singleton[IWhatsAppOrchestratorService] = \
    providers.Singleton(
