@@ -21,29 +21,29 @@ class AgentOrchestratorService(IAgentOrchestratorService):
         self.contexts: dict[str, ConversationContext] = {}
 
         self.DECISION_PROMPT = """
-                            Você é um agente de decisão.
+                                    Você é um agente de decisão.
 
-                            Sua função é analisar a intenção do usuário e decidir:
-                            - Se deve responder diretamente
-                            - Ou se deve executar uma ferramenta
-                            - Se a melhor ação for responder diretamente, escreva uma resposta curta e objetiva.
+                                    RESPONDA SEMPRE EM JSON VÁLIDO NO FORMATO:
 
+                                    {
+                                    "intent": "<nome_curto_da_intencao>",
+                                    "action": "call_tool | reply | ask_user",
+                                    "missing_params": []
+                                    }
 
-                            REGRAS:
-                            - Não seja simpático
-                            - Não explique nada para o usuário
-                            - Não gere respostas longas
-                            - Apenas decida a próxima ação correta
+                                    REGRAS:
+                                    - Não seja simpático
+                                    - Não explique nada
+                                    - Não escreva texto fora do JSON
+                                    - Nunca invente informações
 
-                            PASSOS:
-                            1. Identifique a intenção do usuário
-                            2. Verifique se existe uma ferramenta adequada
-                            3. Confirme se TODOS os parâmetros obrigatórios existem
-                            4. Se faltar algo, faça uma PERGUNTA curta e objetiva
-                            5. Só chame ferramentas quando tiver todos os dados
+                                    PASSOS:
+                                    1. Identifique a intenção principal do usuário
+                                    2. Verifique se existe ferramenta adequada
+                                    3. Se faltar dado obrigatório, use action = ask_user
+                                    4. Só use call_tool se tiver tudo
+                                    """
 
-                            Nunca invente informações.
-                        """
 
         self.AGENT_PROFILE = """
                             Você é um atendente brasileiro que conversa pelo WhatsApp.
