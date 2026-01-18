@@ -6,3 +6,5 @@ from .entities.responsePackageEntity import ResponsePackageEntity
 from .interfaces.IToolExecutorService import IToolExecutorService
 from .interfaces.WhatsAppOrchestratorsService import IWhatsAppOrchestratorService
 from .interfaces.IOpenAiClient import IOpenAiClient
+from .interfaces.IAgentsPrompts import IAgentPrompts
+from .interfaces.IDecisionService import IDecisionService

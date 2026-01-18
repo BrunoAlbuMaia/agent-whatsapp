@@ -25,8 +25,15 @@ async def messages_upsert(request: Request):
         return {"status": "ignored"}
     toolExecutor = dependencies.toolExecutorService()
     openaiClient = dependencies.openaiClient()
+    agentsPrompts = dependencies.agentsPrompts()
+    decisionService = dependencies.decisionService()
 
-    agentOrchestrator = AgentOrchestrator(toolExecutor,openaiClient)
+    agentOrchestrator = AgentOrchestrator(  
+                                            toolExecutor,
+                                            openaiClient,
+                                            agentsPrompts,
+                                            decisionService
+                                          )
     whatsAppOrchestratorService = dependencies.whatsAppOrchestratorService()
     try:
         # 1. Envia para o agente processar o que será feito!
