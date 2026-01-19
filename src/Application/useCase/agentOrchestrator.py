@@ -162,6 +162,7 @@ class AgentOrchestrator:
                     }])
                     
                     context.tool_results.extend(tool_results)
+                    context.add_message("system", f"Dados obtidos via {tool_name}: {json.dumps(tool_results)}")
                     
                     # ✅ PROCESSA RESULTADOS (GENÉRICO)
                     action_result = f"Tool '{tool_name}' executada com sucesso. Resultados: {json.dumps(tool_results, ensure_ascii=False)}"
