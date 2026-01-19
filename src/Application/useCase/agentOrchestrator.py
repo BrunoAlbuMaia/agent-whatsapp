@@ -50,7 +50,7 @@ class AgentOrchestrator:
         
         recent = "\n".join([
             f"{msg.role}: {msg.content}" 
-            for msg in context.get_recent_messages(limit=5)
+            for msg in context.get_recent_messages(limit=20)
         ])
         
         prompt = self.FLOW_DECISION_PROMPT.format(
