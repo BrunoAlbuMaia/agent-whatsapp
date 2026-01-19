@@ -165,6 +165,7 @@ class AgentOrchestrator:
                     
                     # ✅ PROCESSA RESULTADOS (GENÉRICO)
                     action_result = f"Tool '{tool_name}' executada com sucesso. Resultados: {json.dumps(tool_results, ensure_ascii=False)}"
+                    logger.info(action_result)
                     self.decision_service.process_tool_outputs(tool_results,context,response_package)
                     logger.info(f"[{sender_id}] ✅ Tool executada")
                 
