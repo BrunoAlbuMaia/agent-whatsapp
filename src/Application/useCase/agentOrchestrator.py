@@ -136,7 +136,7 @@ class AgentOrchestrator:
 
         decision = json.loads(decision_response.get("content", "{}"))
         
-        logger.info(f"[{sender_id}] 🧠 Decisão: {decision.get('flow_decision')} | Ação: {decision.get('action')}")
+        logger.info(f"[{sender_id}] 🧠 Decisão: {decision} | Ação: {decision.get('decision')}")
         
         # ========== 2. ATUALIZA FLUXO ==========
         self.decision_service.apply_flow_state(decision,context,sender_id)        
