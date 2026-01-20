@@ -23,28 +23,18 @@ async def messages_upsert(request: Request):
     if not raw_body:
         logger.warning("Body vazio")
         return {"status": "ignored"}
-    toolExecutor = dependencies.toolExecutorService()
-    openaiClient = dependencies.openaiClient()
-    agentsPrompts = dependencies.agentsPrompts()
-    decisionService = dependencies.decisionService()
-
-    agentOrchestrator = AgentOrchestrator(  
-                                            toolExecutor,
-                                            openaiClient,
-                                            agentsPrompts,
-                                            decisionService
-                                          )
+    agentOrchestrator = dependencies.agentOrchestrator()
     whatsAppOrchestratorService = dependencies.whatsAppOrchestratorService()
     try:
         # 1. Envia para o agente processar o que será feito!
         response_package = await agentOrchestrator.process_message(messageupsertEntity.sender_id,messageupsertEntity.text)
         
-        # 2. Envia com WhatsApp Orchestrator
-        await whatsAppOrchestratorService.send_response(
-            agent_name=messageupsertEntity.instance,
-            phone_number=messageupsertEntity.sender_id,
-            response_package=response_package
-        )
+        # # 2. Envia com WhatsApp Orchestrator
+        # await whatsAppOrchestratorService.send_response(
+        #     agent_name=messageupsertEntity.instance,
+        #     phone_number=messageupsertEntity.sender_id,
+        #     response_package=response_package
+        # )
         
         return {"status": "ok"}
     except Exception as ex:
