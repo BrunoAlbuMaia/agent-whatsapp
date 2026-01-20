@@ -1,4 +1,5 @@
 from dependency_injector import containers,providers
+from src.Application.useCase.agentOrchestrator import AgentOrchestrator
 
 from src.Domain import (
                            #SERVICES
@@ -25,6 +26,9 @@ from src.Infrastructure import (
 
 
 class Dependecie(containers.DeclarativeContainer):
+
+
+
     
    # Infrastructure
    openaiClient:providers.Singleton[IOpenAiClient] = \
@@ -53,3 +57,11 @@ class Dependecie(containers.DeclarativeContainer):
                        )
 
 
+   # Orchestrator
+   agentOrchestrator = providers.Singleton(
+                                             AgentOrchestrator,
+                                             tool_excutor= toolExecutorService,
+                                             llm_client= openaiClient, 
+                                             agentsPrompts= agentsPrompts, 
+                                             decision_service= decisionService
+                                          )
