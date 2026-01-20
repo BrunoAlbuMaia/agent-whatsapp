@@ -30,11 +30,11 @@ async def messages_upsert(request: Request):
         response_package = await agentOrchestrator.process_message(messageupsertEntity.sender_id,messageupsertEntity.text)
         
         # # 2. Envia com WhatsApp Orchestrator
-        # await whatsAppOrchestratorService.send_response(
-        #     agent_name=messageupsertEntity.instance,
-        #     phone_number=messageupsertEntity.sender_id,
-        #     response_package=response_package
-        # )
+        await whatsAppOrchestratorService.send_response(
+            agent_name=messageupsertEntity.instance,
+            phone_number=messageupsertEntity.sender_id,
+            response_package=response_package
+        )
         
         return {"status": "ok"}
     except Exception as ex:
