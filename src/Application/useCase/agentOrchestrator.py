@@ -39,81 +39,97 @@ class AgentOrchestrator:
 
         return "\n".join(descriptions)
 
-    def __build_flow_decision_messages(
-        self, 
-        context: ConversationContext, 
-        user_message: str
-    ) -> List[dict]:
+    def __build_flow_decision_messages(self, context, user_message):
         flow_ctx = context.get_flow_context()
         tools_desc = self._get_available_tools_description()
         
-        # Monta o prompt do sistema (SEM o histórico dentro)
+        # 🔥 ADICIONAR: Resumo dos dados já coletados
+        memory_context = ""
+        if context.active_flow and context.active_flow.resolved_params:
+            memory_context = f"""
+                                    DADOS JÁ COLETADOS NESTA CONVERSA:
+                                    {json.dumps(context.active_flow.resolved_params, ensure_ascii=False, indent=2)}
+
+                                    IMPORTANTE: Estes dados já foram fornecidos pelo usuário anteriormente. 
+                                    NÃO peça novamente a menos que seja estritamente necessário.
+                                """
+        
         prompt = self.FLOW_DECISION_PROMPT.format(
             flow_context=flow_ctx,
             user_message=user_message,
             available_tools=tools_desc
         )
         
-        # Inicia com o prompt do sistema
-        messages = [{"role": "system", "content": prompt}]
+        # 🔥 INJETAR MEMÓRIA NO SYSTEM PROMPT
+        full_prompt = f"{prompt}\n\n{memory_context}" if memory_context else prompt
         
-        # 🔥 CORREÇÃO: Adiciona o histórico como MENSAGENS SEPARADAS
-        for msg in context.get_recent_messages(limit=15):
-            if msg.role in ["user", "assistant"]:
-                messages.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
+        messages = [{"role": "system", "content": full_prompt}]
+        
+        # Aumentar limite OU usar todas as mensagens
+        for msg in context.get_recent_messages(limit=30):  # ⬆️ Aumentar pra 30
+            messages.append({"role": msg.role, "content": msg.content})
         
         return messages
             
     
-    def __build_response_messages(
-        self, 
-        context: ConversationContext,
-        decision: Dict[str, Any] = None,  # 🔥 ADICIONA decision
-        tool_results: List[Dict[str, Any]] = None
-    ) -> List[dict]:
-        """Monta mensagens para geração de resposta - VERSÃO CORRIGIDA"""
+    def __build_response_messages(self, context, decision, tool_results):
         flow_ctx = context.get_flow_context()
         
-        # Formata os resultados das tools de forma mais clara
-        action_result = "Nenhuma ação executada ainda"
-        if tool_results:
-            formatted_results = []
-            for result in tool_results:
+        # 🔥 USAR HISTÓRICO COMPLETO DE TOOLS
+        all_tools_history = context.tool_results  # Histórico completo
+        
+        # Formatar TODAS as tools executadas (últimas 5)
+        if all_tools_history:
+            recent_tools = all_tools_history[-5:]  # Últimas 5 execuções
+            formatted_history = []
+            
+            for idx, result in enumerate(recent_tools, 1):
                 tool_name = result.get("tool", "unknown")
                 result_data = result.get("result", {})
                 
-                formatted_results.append(
-                    f"Ferramenta '{tool_name}' retornou:\n{json.dumps(result_data, ensure_ascii=False, indent=2)}"
+                formatted_history.append(
+                    f"[Execução #{idx}] Ferramenta '{tool_name}':\n{json.dumps(result_data, ensure_ascii=False, indent=2)}"
                 )
-            action_result = "\n\n".join(formatted_results)
+            
+            tools_summary = "\n\n".join(formatted_history)
+        else:
+            tools_summary = "Nenhuma ferramenta executada ainda"
         
-        # Monta o prompt do sistema com contexto completo
+        # 🔥 DESTACAR A TOOL ATUAL (se houver)
+        current_tool_result = ""
+        if tool_results:
+            current_tool_result =  f"""
+                                        🆕 RESULTADO DA ÚLTIMA EXECUÇÃO:
+                                        {json.dumps(tool_results[0], ensure_ascii=False, indent=2)}
+                                    """
+        
+        # Montar prompt com CONTEXTO COMPLETO
         system_prompt = self.RESPONSE_PROMPT.format(
             flow_context=flow_ctx,
-            decision_context = decision,
-            action_result=action_result
+            decision_context=decision,
+            action_result=tools_summary  # Histórico completo
         )
         
         messages = [{"role": "system", "content": system_prompt}]
         
-        # Adiciona o histórico de mensagens do usuário e assistente
-        for msg in context.get_recent_messages(limit=10):
-            # Ignora mensagens de sistema antigas para não poluir
+        # Adicionar histórico de mensagens
+        for msg in context.get_recent_messages(limit=20):  # ⬆️ Aumentar limite
             if msg.role in ["user", "assistant"]:
                 messages.append({"role": msg.role, "content": msg.content})
         
-        if tool_results:
-            tool_summary = f"""
-                                DADOS RETORNADOS PELA FERRAMENTA (USE ESTES DADOS NA SUA RESPOSTA):
+        # 🔥 ADICIONAR RESUMO DE TOOLS COMO MENSAGEM SYSTEM
+        if all_tools_history:
+            messages.append({
+                "role": "system", 
+                "content": f"""
+                                📊 HISTÓRICO DE FERRAMENTAS EXECUTADAS:
+                                {tools_summary}
 
-                                {action_result}
+                                {current_tool_result}
 
-                                Importante: Estes dados já foram obtidos com sucesso. Use-os para responder ao usuário.
+                                IMPORTANTE: Use estes dados para responder ao usuário. Não peça informações que já foram obtidas.
                             """
-            messages.append({"role": "system", "content": tool_summary})
+            })
         
         return messages
     
