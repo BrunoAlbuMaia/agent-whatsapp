@@ -8,9 +8,6 @@ from src.Domain import ConversationContext,ResponsePackageEntity
 
 
 class IDecisionService(ABC):
-    def __init__(self,context_manager):
-        self.context_manager = context_manager
-
     @abstractmethod
     def apply_flow_state(self,decision:dict,context:ConversationContext,sender_id:str):...
     @abstractmethod

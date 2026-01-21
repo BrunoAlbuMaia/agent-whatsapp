@@ -157,11 +157,12 @@ class AgentOrchestrator:
         )
 
         decision = json.loads(decision_response.get("content", "{}"))
+    
         
         logger.info(f"[{sender_id}] 🧠 Decisão: {decision.get('decision')} | Tool: {decision.get('tool_name')}")
         
         # ========== 2. ATUALIZA FLUXO ==========
-        self.decision_service.apply_flow_state(decision, context, sender_id)        
+        context = self.decision_service.apply_flow_state(decision, context, sender_id)        
         
         # ========== 3. EXECUTA TOOL ==========
         if decision.get("decision") == 'call_tool':
@@ -171,7 +172,7 @@ class AgentOrchestrator:
             if not tool_name:
                 logger.error(f"[{sender_id}] ❌ action=call_tool mas tool_name vazio")
             else:
-                self.decision_service.prepare_tool_params(tool_params, context)
+                filled = self.decision_service.prepare_tool_params(tool_params, context)
                 
                 try:
                     # Executa a tool
