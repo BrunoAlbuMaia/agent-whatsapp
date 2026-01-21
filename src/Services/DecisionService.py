@@ -1,11 +1,11 @@
 from typing import List,Dict,Any
 
-from src.Domain import ConversationContext,ResponsePackageEntity
+from src.Domain import ConversationContext,ResponsePackageEntity,IDecisionService
 
 
 
-class DecisionService:
-    def apply_flow_state(self,decision:dict,context:ConversationContext,sender_id:str):
+class DecisionService(IDecisionService):
+    def apply_flow_state(self, decision: dict, context: ConversationContext, sender_id: str):
         action = decision.get("decision")
         
         if action == "new_flow":
@@ -23,9 +23,27 @@ class DecisionService:
             # Atualiza etapa do fluxo
             if next_step := decision.get("next_step"):
                 context.active_flow.current_step = next_step
-                
+        
+        elif action == "call_tool":
+            # Garante que existe um flow ativo
+            if not context.active_flow:
+                context.start_flow("tool_execution")
+            
+            # Atualiza etapa
+            if next_step := decision.get("next_step"):
+                context.active_flow.current_step = next_step
+            
+            # 🔥 IMPORTANTE: Salva os tool_params no flow
+            tool_params = decision.get("tool_params", {})
+            for key, value in tool_params.items():
+                if value and value != "":
+                    context.active_flow.add_resolved_param(key, value)
+                    # logger.info(f"[{sender_id}] ✅ Param '{key}' salvo no flow: {value}")
+        
         elif action == "complete":
             context.complete_flow()
+        
+        return context
     
     def prepare_tool_params(self, raw_params: Dict[str, Any], context: ConversationContext) -> Dict[str, Any]:
         """Lógica do seu antigo _fill_params_from_context"""
