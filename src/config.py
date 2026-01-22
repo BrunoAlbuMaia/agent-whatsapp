@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = 'apikeydochat'
     OPENAI_MODEL:str = 'gpt-5-nano'
     BASE_URL_EVOLUTION:str = ''
+    REDIS_URL:str = ''
     API_KEY_EVOLUITON:str = ''
     WEBHOOK_SECRET: str = 'coloquequaldesejar'
 

@@ -6,3 +6,4 @@ pydantic-settings
 dependency_injector
 openai
 python-toon
+redis
