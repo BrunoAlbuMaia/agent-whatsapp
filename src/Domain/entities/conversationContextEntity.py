@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import uuid
+import json
 
 @dataclass
 class FlowIntent:
@@ -62,6 +63,17 @@ class Message:
     timestamp: datetime = field(default_factory=datetime.now)
 
 
+@dataclass
+class DecisionRecord:
+    """Registro de uma decisão tomada pelo agente"""
+    decision: str  # call_tool, ask_user, reply, complete, new_flow
+    tool_name: Optional[str] = None
+    tool_params: Dict = field(default_factory=dict)
+    reason: Optional[str] = None
+    timestamp: datetime = field(default_factory=datetime.now)
+    user_message: Optional[str] = None  # Mensagem que gerou esta decisão
+
+
 class ConversationContext:
     """Contexto de conversa com gerenciamento de fluxo"""
     
@@ -73,6 +85,9 @@ class ConversationContext:
         # ✅ NOVO: gerenciamento de fluxo
         self.active_flow: Optional[FlowIntent] = None
         self.flow_history: List[FlowIntent] = []
+        
+        # ✅ NOVO: histórico de decisões
+        self.decision_history: List[DecisionRecord] = []
     
     def add_message(self, role: str, content: str):
         """Adiciona mensagem ao histórico"""
@@ -138,3 +153,146 @@ class ConversationContext:
         if not self.active_flow:
             return default
         return self.active_flow.resolved_params.get(key, default)
+    
+    # ========== GERENCIAMENTO DE DECISÕES ==========
+    
+    def add_decision(self, decision: str, tool_name: Optional[str] = None, 
+                     tool_params: Dict = None, reason: Optional[str] = None,
+                     user_message: Optional[str] = None):
+        """Adiciona uma decisão ao histórico"""
+        self.decision_history.append(
+            DecisionRecord(
+                decision=decision,
+                tool_name=tool_name,
+                tool_params=tool_params or {},
+                reason=reason,
+                user_message=user_message
+            )
+        )
+    
+    def get_recent_decisions(self, limit: int = 10) -> List[DecisionRecord]:
+        """Retorna últimas N decisões"""
+        return self.decision_history[-limit:]
+    
+    def get_decision_summary(self) -> str:
+        """Retorna resumo das decisões recentes para o prompt"""
+        if not self.decision_history:
+            return "Nenhuma decisão anterior registrada."
+        
+        recent = self.get_recent_decisions(limit=5)
+        summary_lines = []
+        
+        for idx, decision in enumerate(recent, 1):
+            line = f"[{idx}] {decision.decision}"
+            if decision.tool_name:
+                line += f" → Tool: {decision.tool_name}"
+            if decision.reason:
+                line += f" (Razão: {decision.reason})"
+            summary_lines.append(line)
+        
+        return "\n".join(summary_lines)
+    
+    # ========== SERIALIZAÇÃO PARA REDIS ==========
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializa o contexto para dicionário (para salvar no Redis)"""
+        return {
+            "sender_id": self.sender_id,
+            "messages": [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                }
+                for msg in self.messages
+            ],
+            "tool_results": self.tool_results,
+            "active_flow": self._flow_to_dict(self.active_flow) if self.active_flow else None,
+            "flow_history": [self._flow_to_dict(f) for f in self.flow_history],
+            "decision_history": [
+                {
+                    "decision": d.decision,
+                    "tool_name": d.tool_name,
+                    "tool_params": d.tool_params,
+                    "reason": d.reason,
+                    "timestamp": d.timestamp.isoformat(),
+                    "user_message": d.user_message
+                }
+                for d in self.decision_history
+            ]
+        }
+    
+    def _flow_to_dict(self, flow: FlowIntent) -> Dict[str, Any]:
+        """Serializa um FlowIntent para dicionário"""
+        if not flow:
+            return None
+        return {
+            "flow_id": flow.flow_id,
+            "primary_intent": flow.primary_intent,
+            "sub_intent": flow.sub_intent,
+            "status": flow.status,
+            "current_step": flow.current_step,
+            "resolved_params": flow.resolved_params,
+            "pending_params": flow.pending_params,
+            "created_at": flow.created_at.isoformat(),
+            "last_updated": flow.last_updated.isoformat(),
+            "ttl_seconds": flow.ttl_seconds
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ConversationContext':
+        """Deserializa um dicionário para ConversationContext"""
+        context = cls(sender_id=data["sender_id"])
+        
+        # Restaura mensagens
+        for msg_data in data.get("messages", []):
+            context.messages.append(
+                Message(
+                    role=msg_data["role"],
+                    content=msg_data["content"],
+                    timestamp=datetime.fromisoformat(msg_data["timestamp"])
+                )
+            )
+        
+        # Restaura tool results
+        context.tool_results = data.get("tool_results", [])
+        
+        # Restaura active flow
+        if data.get("active_flow"):
+            context.active_flow = cls._flow_from_dict(data["active_flow"])
+        
+        # Restaura flow history
+        context.flow_history = [
+            cls._flow_from_dict(f) for f in data.get("flow_history", [])
+        ]
+        
+        # Restaura decision history
+        for decision_data in data.get("decision_history", []):
+            context.decision_history.append(
+                DecisionRecord(
+                    decision=decision_data["decision"],
+                    tool_name=decision_data.get("tool_name"),
+                    tool_params=decision_data.get("tool_params", {}),
+                    reason=decision_data.get("reason"),
+                    timestamp=datetime.fromisoformat(decision_data["timestamp"]),
+                    user_message=decision_data.get("user_message")
+                )
+            )
+        
+        return context
+    
+    @classmethod
+    def _flow_from_dict(cls, data: Dict[str, Any]) -> FlowIntent:
+        """Deserializa um dicionário para FlowIntent"""
+        return FlowIntent(
+            flow_id=data["flow_id"],
+            primary_intent=data["primary_intent"],
+            sub_intent=data.get("sub_intent"),
+            status=data["status"],
+            current_step=data["current_step"],
+            resolved_params=data.get("resolved_params", {}),
+            pending_params=data.get("pending_params", []),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            last_updated=datetime.fromisoformat(data["last_updated"]),
+            ttl_seconds=data.get("ttl_seconds", 1800)
+        )

@@ -1,42 +1,55 @@
 import logging
 import json
 from typing import List, Any, Dict
-from src.Domain import (
-    ConversationContext,
-    IToolExecutorService,
-    IDecisionService,
-    IOpenAiClient,
-    IAgentPrompts,
-    ResponsePackageEntity
-)
+from src.Domain import ResponsePackageEntity,ConversationContext
 
 logger = logging.getLogger(__name__)
 
 class AgentOrchestrator:
-    def __init__(self, tool_excutor: IToolExecutorService, llm_client: IOpenAiClient, 
-                 agentsPrompts: IAgentPrompts, decision_service: IDecisionService):
+    def __init__(
+                    self,
+                    tool_executor,
+                    llm_client,
+                    agentsPrompts,
+                    decision_service
+                ):
         self.llm_client = llm_client
-        self.tool_executor = tool_excutor
+        self.tool_executor = tool_executor
         self.decision_service = decision_service
-        self.contexts: dict[str, ConversationContext] = {}
         
         self.FLOW_DECISION_PROMPT = agentsPrompts.get_flow_decision_prompt()
         self.RESPONSE_PROMPT = agentsPrompts.get_response_prompt()
         
     def _get_available_tools_description(self) -> str:
         tools = self.tool_executor.get_available_tools()
+        
+        if not tools:
+            return "Nenhuma ferramenta disponível no momento."
+        
         descriptions = []
+        descriptions.append("LISTA DE FERRAMENTAS DISPONÍVEIS (você SÓ pode usar estas):")
+        descriptions.append("")
 
         for tool in tools:
-            schema = tool["parameters"]
-            descriptions.append(
-                f"""
-                    Tool: {tool['name']}
-                    Required params: {schema.get('required', [])}
-                    Properties: {list(schema.get('properties', {}).keys())}
-                """
-            )
+            schema = tool.get("parameters", {})
+            tool_name = tool.get("name", "unknown")
+            tool_description = tool.get("description", "Sem descrição")
+            
+            descriptions.append(f"🔧 {tool_name}")
+            descriptions.append(f"   Descrição: {tool_description}")
+            
+            if schema.get("required"):
+                descriptions.append(f"   Parâmetros obrigatórios: {', '.join(schema.get('required', []))}")
+            
+            if schema.get("properties"):
+                props = list(schema.get("properties", {}).keys())
+                descriptions.append(f"   Parâmetros disponíveis: {', '.join(props)}")
+            
+            descriptions.append("")
 
+        descriptions.append("⚠️ IMPORTANTE: Você SÓ pode oferecer funcionalidades que existem nesta lista!")
+        descriptions.append("❌ NÃO invente ferramentas, canais de envio (email/SMS), ou funcionalidades não listadas!")
+        
         return "\n".join(descriptions)
 
     def __build_flow_decision_messages(self, context, user_message):
@@ -54,14 +67,41 @@ class AgentOrchestrator:
                                     NÃO peça novamente a menos que seja estritamente necessário.
                                 """
         
+        # 🔥 ADICIONAR: Histórico de decisões anteriores
+        decision_history = ""
+        if context.decision_history:
+            recent_decisions = context.get_recent_decisions(limit=5)
+            decision_lines = []
+            for idx, decision in enumerate(recent_decisions, 1):
+                line = f"[{idx}] Decisão: {decision.decision}"
+                if decision.tool_name:
+                    line += f" | Tool: {decision.tool_name}"
+                if decision.reason:
+                    line += f" | Razão: {decision.reason}"
+                decision_lines.append(line)
+            
+            decision_history = f"""
+                                    HISTÓRICO DE DECISÕES ANTERIORES:
+                                    {chr(10).join(decision_lines)}
+
+                                    IMPORTANTE: Use este histórico para manter consistência e evitar decisões repetitivas ou contraditórias.
+                                    Analise o padrão das decisões anteriores para tomar a melhor decisão agora.
+                                """
+        
         prompt = self.FLOW_DECISION_PROMPT.format(
             flow_context=flow_ctx,
             user_message=user_message,
             available_tools=tools_desc
         )
         
-        # 🔥 INJETAR MEMÓRIA NO SYSTEM PROMPT
-        full_prompt = f"{prompt}\n\n{memory_context}" if memory_context else prompt
+        # 🔥 INJETAR MEMÓRIA E HISTÓRICO NO SYSTEM PROMPT
+        context_parts = []
+        if memory_context:
+            context_parts.append(memory_context)
+        if decision_history:
+            context_parts.append(decision_history)
+        
+        full_prompt = f"{prompt}\n\n{chr(10).join(context_parts)}" if context_parts else prompt
         
         messages = [{"role": "system", "content": full_prompt}]
         
@@ -103,10 +143,19 @@ class AgentOrchestrator:
                                         {json.dumps(tool_results[0], ensure_ascii=False, indent=2)}
                                     """
         
+        # Obter descrição das ferramentas disponíveis
+        available_tools_desc = self._get_available_tools_description()
+        
+        # Formatar decisão para o prompt (incluindo informação sobre complete)
+        decision_context_str = json.dumps(decision, ensure_ascii=False, indent=2)
+        if decision.get("decision") == "complete":
+            decision_context_str += "\n\n⚠️ ATENÇÃO: O usuário está agradecendo/finalizando. Responda apenas com agradecimento breve, NÃO repita informações já fornecidas!"
+        
         # Montar prompt com CONTEXTO COMPLETO
         system_prompt = self.RESPONSE_PROMPT.format(
+            available_tools=available_tools_desc,
             flow_context=flow_ctx,
-            decision_context=decision,
+            decision_context=decision_context_str,
             action_result=tools_summary  # Histórico completo
         )
         
@@ -133,17 +182,11 @@ class AgentOrchestrator:
         
         return messages
     
-    def __get_or_create_context(self, sender_id: str) -> ConversationContext:
-        if sender_id not in self.contexts:
-            self.contexts[sender_id] = ConversationContext(sender_id=sender_id)
-        return self.contexts[sender_id]
-    
-    async def process_message(self, sender_id: str, message: str):
-        """Processa mensagem de forma genérica"""
-        context = self.__get_or_create_context(sender_id)
+    async def process_message(self, context: ConversationContext, message: str):
+        """Processa mensagem usando o contexto fornecido (já carregado do Redis)"""
         context.add_message("user", message)
         
-        logger.info(f"[{sender_id}] 📨 Mensagem: {message}")
+        logger.info(f"[{context.sender_id}] 📨 Mensagem: {message}")
         
         response_package = ResponsePackageEntity()
         executed_tool_results = None  # Armazena os resultados para passar ao response
@@ -159,18 +202,27 @@ class AgentOrchestrator:
         decision = json.loads(decision_response.get("content", "{}"))
     
         
-        logger.info(f"[{sender_id}] 🧠 Decisão: {decision.get('decision')} | Tool: {decision.get('tool_name')}")
+        logger.info(f"[{context.sender_id}] 🧠 Decisão: {decision.get('decision')} | Tool: {decision.get('tool_name')}")
         
-        # ========== 2. ATUALIZA FLUXO ==========
-        context = self.decision_service.apply_flow_state(decision, context, sender_id)        
+        # ========== 2. SALVA DECISÃO NO HISTÓRICO ==========
+        context.add_decision(
+            decision=decision.get("decision", "unknown"),
+            tool_name=decision.get("tool_name"),
+            tool_params=decision.get("tool_params", {}),
+            reason=decision.get("reason"),
+            user_message=message
+        )
         
-        # ========== 3. EXECUTA TOOL ==========
+        # ========== 3. ATUALIZA FLUXO ==========
+        context = self.decision_service.apply_flow_state(decision, context, context.sender_id)        
+        
+        # ========== 4. EXECUTA TOOL ==========
         if decision.get("decision") == 'call_tool':
             tool_name = decision.get("tool_name")
             tool_params = decision.get("tool_params", {})
             
             if not tool_name:
-                logger.error(f"[{sender_id}] ❌ action=call_tool mas tool_name vazio")
+                logger.error(f"[{context.sender_id}] ❌ action=call_tool mas tool_name vazio")
             else:
                 filled = self.decision_service.prepare_tool_params(tool_params, context)
                 
@@ -194,30 +246,30 @@ class AgentOrchestrator:
                         response_package
                     )
                     
-                    logger.info(f"[{sender_id}] ✅ Tool '{tool_name}' executada com sucesso")
-                    logger.info(f"[{sender_id}] 📊 Resultados: {json.dumps(tool_results, ensure_ascii=False)[:500]}")
+                    logger.info(f"[{context.sender_id}] ✅ Tool '{tool_name}' executada com sucesso")
+                    logger.info(f"[{context.sender_id}] 📊 Resultados: {json.dumps(tool_results, ensure_ascii=False)[:500]}")
                 
                 except Exception as e:
-                    logger.error(f"[{sender_id}] ❌ Erro na tool: {str(e)}")
+                    logger.error(f"[{context.sender_id}] ❌ Erro na tool: {str(e)}")
                     # Cria um resultado de erro para o modelo entender
                     executed_tool_results = [{
                         "tool": tool_name,
                         "error": str(e)
                     }]
         
-        # ========== 4. GERA RESPOSTA (COM CONTEXTO DOS RESULTADOS) ==========
+        # ========== 5. GERA RESPOSTA (COM CONTEXTO DOS RESULTADOS) ==========
         response_messages = self.__build_response_messages(context,decision, executed_tool_results)
         
-        logger.info(f"[{sender_id}] 🔍 Mensagens enviadas para resposta: {len(response_messages)} mensagens")
+        logger.info(f"[{context.sender_id}] 🔍 Mensagens enviadas para resposta: {len(response_messages)} mensagens")
         
         final_response = await self.llm_client.chat(messages=response_messages)
         
         answer = final_response["content"]
         
-        # ========== 5. FINALIZAÇÃO ==========
+        # ========== 6. FINALIZAÇÃO ==========
         response_package.text = answer
         context.add_message("assistant", answer)
         
-        logger.info(f"[{sender_id}] 💬 Resposta gerada: {answer[:300]}...")
+        logger.info(f"[{context.sender_id}] 💬 Resposta gerada: {answer[:300]}...")
         
         return response_package
