@@ -2,20 +2,18 @@ import logging
 import json
 from typing import List, Any, Dict
 from src.Domain import ResponsePackageEntity,ConversationContext
+from src.Tools import ExecutorTool
 
 logger = logging.getLogger(__name__)
 
 class AgentOrchestrator:
     def __init__(
                     self,
-                    tool_executor,
                     llm_client,
-                    agentsPrompts,
-                    decision_service
+                    agentsPrompts
                 ):
         self.llm_client = llm_client
-        self.tool_executor = tool_executor
-        self.decision_service = decision_service
+        self.tool_executor = ExecutorTool()
         
         self.FLOW_DECISION_PROMPT = agentsPrompts.get_flow_decision_prompt()
         self.RESPONSE_PROMPT = agentsPrompts.get_response_prompt()
@@ -111,7 +109,6 @@ class AgentOrchestrator:
         
         return messages
             
-    
     def __build_response_messages(self, context, decision, tool_results):
         flow_ctx = context.get_flow_context()
         
@@ -182,6 +179,77 @@ class AgentOrchestrator:
         
         return messages
     
+    def _apply_flow_state(self, decision: dict, context: ConversationContext, sender_id: str):
+        action = decision.get("decision")
+        
+        if action == "new_flow":
+            context.start_flow(decision.get("intent", "user_request"))
+        
+        elif action == "continue":
+            if not context.active_flow:
+                context.start_flow("user_request")
+            
+            # Atualiza parâmetros resolvidos
+            updates = decision.get("resolved_params_update", {})
+            for key, value in updates.items():
+                context.active_flow.add_resolved_param(key, value)
+            
+            # Atualiza etapa do fluxo
+            if next_step := decision.get("next_step"):
+                context.active_flow.current_step = next_step
+        
+        elif action == "call_tool":
+            # Garante que existe um flow ativo
+            if not context.active_flow:
+                context.start_flow("tool_execution")
+            
+            # Atualiza etapa
+            if next_step := decision.get("next_step"):
+                context.active_flow.current_step = next_step
+            
+            # 🔥 IMPORTANTE: Salva os tool_params no flow
+            tool_params = decision.get("tool_params", {})
+            for key, value in tool_params.items():
+                if value and value != "":
+                    context.active_flow.add_resolved_param(key, value)
+                    # logger.info(f"[{sender_id}] ✅ Param '{key}' salvo no flow: {value}")
+        
+        elif action == "complete":
+            context.complete_flow()
+        
+        return context
+    
+    def __prepare_tool_params(self, raw_params: Dict[str, Any], context: ConversationContext) -> Dict[str, Any]:
+        """Lógica do seu antigo _fill_params_from_context"""
+        if not context.active_flow:
+            return raw_params
+            
+        resolved = context.active_flow.resolved_params
+        filled = raw_params.copy()
+        
+        for key, value in filled.items():
+            if (value is None or value == "") and key in resolved:
+                filled[key] = resolved[key]
+        return filled
+
+    def __process_tool_outputs(self, tool_results: List[Dict[str, Any]], context: ConversationContext, package: ResponsePackageEntity):
+        """Processa o retorno das Tools MCP e popula o pacote de resposta (Bloco 3 do seu código)"""
+        for result in tool_results:
+            result_data = result.get("result", {})
+            
+            # Atualiza contexto com novos dados da tool
+            if context.active_flow:
+                for key, value in result_data.items():
+                    if key not in context.active_flow.resolved_params:
+                        context.active_flow.add_resolved_param(key, value)
+            
+            # Extração de assets para o WhatsApp
+            if pdf := result_data.get("pdf_path"):
+                package.add_document(path=pdf, caption=result_data.get("pdf_caption", "Documento"))
+                
+            if img := result_data.get("image_path"):
+                package.add_document(path=img, caption=result_data.get("image_caption", "Imagem"))
+
     async def process_message(self, context: ConversationContext, message: str):
         """Processa mensagem usando o contexto fornecido (já carregado do Redis)"""
         context.add_message("user", message)
@@ -214,7 +282,7 @@ class AgentOrchestrator:
         )
         
         # ========== 3. ATUALIZA FLUXO ==========
-        context = self.decision_service.apply_flow_state(decision, context, context.sender_id)        
+        context = self._apply_flow_state(decision, context, context.sender_id)        
         
         # ========== 4. EXECUTA TOOL ==========
         if decision.get("decision") == 'call_tool':
@@ -224,7 +292,7 @@ class AgentOrchestrator:
             if not tool_name:
                 logger.error(f"[{context.sender_id}] ❌ action=call_tool mas tool_name vazio")
             else:
-                filled = self.decision_service.prepare_tool_params(tool_params, context)
+                filled = self.__prepare_tool_params(tool_params, context)
                 
                 try:
                     # Executa a tool
@@ -240,7 +308,7 @@ class AgentOrchestrator:
                     context.tool_results.extend(tool_results)
                     
                     # Processa resultados (PDFs, imagens, etc)
-                    self.decision_service.process_tool_outputs(
+                    self.__process_tool_outputs(
                         tool_results, 
                         context, 
                         response_package

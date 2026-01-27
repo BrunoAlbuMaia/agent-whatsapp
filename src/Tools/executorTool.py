@@ -1,11 +1,14 @@
 from typing import List, Dict, Any
-from src.Tools import BaseTool, SearchTool,IpvaTool
+from .baseTool import BaseTool
+from .searchTool import SearchTool
+from .IpvaTools  import IpvaTool
+
 from src.Domain import IToolExecutorService
 import logging
 
 logger = logging.getLogger(__name__)
 
-class ToolExecutor(IToolExecutorService):
+class ExecutorTool:
     def __init__(self):
         # Registra todas as tools disponíveis
         self.tools: Dict[str, BaseTool] = {

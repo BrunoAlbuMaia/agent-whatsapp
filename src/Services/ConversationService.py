@@ -12,7 +12,6 @@ from src.Domain import (
 )
 from src.Orchestrator import AgentOrchestrator
 from src.Infrastructure import OpenAIClient,AgentPrompts
-from src.Services import ToolExecutor, DecisionService
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +27,7 @@ class ConversationService(IConversationService):
         self.message_repo = message_repo
         self.redis = redis
         self.agent = AgentOrchestrator(
-                                        tool_executor=ToolExecutor(),
                                         llm_client=OpenAIClient(),
-                                        decision_service=DecisionService(),
                                         agentsPrompts=AgentPrompts()
                                       )
 
