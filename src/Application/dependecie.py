@@ -3,8 +3,6 @@ from dependency_injector import containers,providers
 from src.Domain import (
                            #SERVICES
                            IWhatsAppOrchestratorService,
-                           IToolExecutorService,
-                           IDecisionService,
                            IConversationService,
                            IOpenAiClient,
                            IAgentPrompts,
@@ -16,9 +14,7 @@ from src.Domain import (
                         )
 from src.Services import (
                            ConversationService,
-                           WhatsAppOrchestratorService,
-                           ToolExecutor,
-                           DecisionService
+                           WhatsAppOrchestratorService
                          )
 from src.Orchestrator.agentOrchestrator import AgentOrchestrator
 
@@ -45,19 +41,9 @@ class Dependecie(containers.DeclarativeContainer):
    redisRepository: providers.Singleton[IRedisRepository] = \
    providers.Singleton(RedisRepository)
    
-   # Cross-cutting
-   openaiClient: providers.Singleton[IOpenAiClient] = \
-   providers.Singleton(OpenAIClient)
-   
-   agentsPrompts: providers.Singleton[IAgentPrompts] = \
-   providers.Singleton(AgentPrompts)
-   
    # ========== SERVICES ==========
    whatsAppOrchestratorService: providers.Singleton[IWhatsAppOrchestratorService] = \
-   providers.Singleton(WhatsAppOrchestratorService)
-
-   
-   # ========== CONVERSATION SERVICE ==========
+   providers.Singleton(WhatsAppOrchestratorService)   
    
    conversationService: providers.Singleton[IConversationService] = \
    providers.Singleton(
