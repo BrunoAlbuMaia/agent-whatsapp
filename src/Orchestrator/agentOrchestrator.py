@@ -1,7 +1,7 @@
 import logging
 import json
 from typing import List, Any, Dict
-from src.Domain import ResponsePackageEntity,ConversationContext
+from src.Domain import ResponsePackageEntity,ConversationContext, AgentConfigEntity
 from src.Tools import ExecutorTool
 
 logger = logging.getLogger(__name__)
@@ -10,13 +10,27 @@ class AgentOrchestrator:
     def __init__(
                     self,
                     llm_client,
-                    agentsPrompts
+                    agent_config: AgentConfigEntity
                 ):
-        self.llm_client = llm_client
-        self.tool_executor = ExecutorTool()
+        """
+        Inicializa o orchestrator com configuração específica de um agente.
         
-        self.FLOW_DECISION_PROMPT = agentsPrompts.get_flow_decision_prompt()
-        self.RESPONSE_PROMPT = agentsPrompts.get_response_prompt()
+        Args:
+            llm_client: Cliente LLM para fazer chamadas
+            agent_config: Configuração do agente (prompts, tools, personalidade)
+        """
+        self.llm_client = llm_client
+        self.agent_config = agent_config
+        
+        # Usa os prompts da configuração do agente
+        self.FLOW_DECISION_PROMPT = agent_config.flow_decision_prompt
+        self.RESPONSE_PROMPT = agent_config.response_prompt
+        
+        # Cria executor de tools com apenas as tools permitidas para este agente
+        self.tool_executor = ExecutorTool(allowed_tools=agent_config.available_tools)
+        
+        logger.info(f"[AgentOrchestrator] ✅ Inicializado com agente: {agent_config.name}")
+        logger.info(f"[AgentOrchestrator] 🔧 Tools disponíveis: {agent_config.available_tools}")
         
     def _get_available_tools_description(self) -> str:
         tools = self.tool_executor.get_available_tools()
@@ -50,7 +64,7 @@ class AgentOrchestrator:
         
         return "\n".join(descriptions)
 
-    def __build_flow_decision_messages(self, context, user_message):
+    def __build_flow_decision_messages(self, context, user_message,prompt:str):
         flow_ctx = context.get_flow_context()
         tools_desc = self._get_available_tools_description()
         
@@ -86,11 +100,7 @@ class AgentOrchestrator:
                                     Analise o padrão das decisões anteriores para tomar a melhor decisão agora.
                                 """
         
-        prompt = self.FLOW_DECISION_PROMPT.format(
-            flow_context=flow_ctx,
-            user_message=user_message,
-            available_tools=tools_desc
-        )
+        prompt = self.FLOW_DECISION_PROMPT
         
         # 🔥 INJETAR MEMÓRIA E HISTÓRICO NO SYSTEM PROMPT
         context_parts = []
@@ -102,9 +112,29 @@ class AgentOrchestrator:
         full_prompt = f"{prompt}\n\n{chr(10).join(context_parts)}" if context_parts else prompt
         
         messages = [{"role": "system", "content": full_prompt}]
+        state_payload = {
+            "flow_context": flow_ctx,
+            "user_message": user_message,
+            "resolved_params": context.active_flow.resolved_params if context.active_flow else {},
+            "decision_history": [
+                {
+                    "decision": d.decision,
+                    "tool": d.tool_name,
+                    "reason": d.reason
+                }
+                for d in context.get_recent_decisions(limit=5)
+            ],
+            "available_tools": tools_desc
+        }
+
+        state_system = f"ESTADO_ATUAL:\n{json.dumps(state_payload, ensure_ascii=False, indent=2)}"
         
-        # Aumentar limite OU usar todas as mensagens
-        for msg in context.get_recent_messages(limit=30):  # ⬆️ Aumentar pra 30
+        messages = [
+            {"role": "system", "content": full_prompt},
+            {"role": "system", "content": state_system},
+        ]
+
+        for msg in context.get_recent_messages(limit=20):
             messages.append({"role": msg.role, "content": msg.content})
         
         return messages
@@ -149,34 +179,25 @@ class AgentOrchestrator:
             decision_context_str += "\n\n⚠️ ATENÇÃO: O usuário está agradecendo/finalizando. Responda apenas com agradecimento breve, NÃO repita informações já fornecidas!"
         
         # Montar prompt com CONTEXTO COMPLETO
-        system_prompt = self.RESPONSE_PROMPT.format(
-            available_tools=available_tools_desc,
-            flow_context=flow_ctx,
-            decision_context=decision_context_str,
-            action_result=tools_summary  # Histórico completo
-        )
-        
+        system_prompt = self.RESPONSE_PROMPT
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Adicionar histórico de mensagens
-        for msg in context.get_recent_messages(limit=20):  # ⬆️ Aumentar limite
-            if msg.role in ["user", "assistant"]:
-                messages.append({"role": msg.role, "content": msg.content})
-        
-        # 🔥 ADICIONAR RESUMO DE TOOLS COMO MENSAGEM SYSTEM
-        if all_tools_history:
-            messages.append({
-                "role": "system", 
-                "content": f"""
-                                📊 HISTÓRICO DE FERRAMENTAS EXECUTADAS:
-                                {tools_summary}
+        messages.append({
+                            "role": "system",
+                            "content": f"""
+                                            ESTADO_DO_AGENTE:
+                                            {json.dumps({
+                                                "personal_context": self.agent_config.personality,
+                                                "flow_context": flow_ctx,
+                                                "decision": decision,
+                                                "latest_tool_result": tool_results[0] if tool_results else None
+                                            }, ensure_ascii=False, indent=2)}
 
-                                {current_tool_result}
-
-                                IMPORTANTE: Use estes dados para responder ao usuário. Não peça informações que já foram obtidas.
-                            """
-            })
-        
+                                            REGRAS:
+                                            - Use o ESTADO_DO_AGENTE como fonte de verdade
+                                            - NÃO peça dados já presentes em tool_history ou latest_tool_result
+                                            - Se decision.decision == "complete", apenas agradeça brevemente
+                                        """
+                        })
         return messages
     
     def _apply_flow_state(self, decision: dict, context: ConversationContext, sender_id: str):
@@ -260,7 +281,7 @@ class AgentOrchestrator:
         executed_tool_results = None  # Armazena os resultados para passar ao response
         
         # ========== 1. DECISÃO ==========
-        decision_messages = self.__build_flow_decision_messages(context, message)
+        decision_messages = self.__build_flow_decision_messages(context, message,self.agent_config.flow_decision_prompt)
         
         decision_response = await self.llm_client.chat(
             messages=decision_messages,
