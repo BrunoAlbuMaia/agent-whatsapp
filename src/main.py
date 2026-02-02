@@ -1,7 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from src.config import settings
-from src.Application import agentRoute
+from src.Application import agentRoute, agentConfigRoute
 
 
 app = FastAPI(
@@ -11,6 +11,7 @@ app = FastAPI(
 
 # Registrar Rotas
 app.include_router(agentRoute, prefix=settings.API_V1_STR)
+app.include_router(agentConfigRoute, prefix=settings.API_V1_STR)
 
 
 import uvicorn

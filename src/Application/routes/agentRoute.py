@@ -16,6 +16,7 @@ dependencies = Dependecie()
 @router.post("/messages-upsert")
 async def messages_upsert(request: Request):
     raw_body = await request.json()
+    logger.info("Body recebido: %s", raw_body)
 
     #O Json capturado, é transformado na entidade MessageupsertEntity#
     messageupsertEntity:MessageupsertEntity = map_webhook_to_incoming_message(raw_body)
@@ -36,11 +37,11 @@ async def messages_upsert(request: Request):
         )
         
         # # 2. Envia resposta via WhatsApp
-        await whatsAppOrchestratorService.send_response(
-            agent_name=messageupsertEntity.instance or "default",
-            phone_number=messageupsertEntity.sender_id,
-            response_package=response_package
-        )
+        # await whatsAppOrchestratorService.send_response(
+        #     agent_name=messageupsertEntity.instance or "default",
+        #     phone_number=messageupsertEntity.sender_id,
+        #     response_package=response_package
+        # )
         
         return {"status": "ok", "message": "Processado com sucesso"}
     except Exception as ex:

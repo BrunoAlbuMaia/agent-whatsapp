@@ -8,3 +8,5 @@ openai
 python-toon
 redis
 psycopg2-binary
+httpx
+PyMuPDF

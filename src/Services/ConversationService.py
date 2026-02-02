@@ -6,12 +6,14 @@ from src.Domain import (
     ConversationContext,
     IConversationRepository,
     IRedisRepository,
+    IAgentConfigRepository,
     IMessageRepository,
     MessageEntity,
     ResponsePackageEntity
 )
 from src.Orchestrator import AgentOrchestrator
-from src.Infrastructure import OpenAIClient,AgentPrompts
+from src.Infrastructure import OpenAIClient
+# from src.Services.agentConfigService import AgentConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +23,25 @@ class ConversationService(IConversationService):
         self,
         conversation_repo: IConversationRepository,
         message_repo: IMessageRepository,
-        redis: IRedisRepository
+        redis: IRedisRepository,
+        agent_config_service: IAgentConfigRepository
     ):
+        """
+        Inicializa o serviço de conversação.
+        
+        Args:
+            conversation_repo: Repositório de conversas
+            message_repo: Repositório de mensagens
+            redis: Repositório Redis para cache
+            agent_config_service: Serviço para resolver configuração de agentes
+        """
         self.conversation_repo = conversation_repo
         self.message_repo = message_repo
         self.redis = redis
-        self.agent = AgentOrchestrator(
-                                        llm_client=OpenAIClient(),
-                                        agentsPrompts=AgentPrompts()
-                                      )
+        self.agent_config_service = agent_config_service
+        self.llm_client = OpenAIClient()
+        
+        logger.info("[ConversationService] ✅ Inicializado com suporte a multi-agentes")
 
     def _get_redis_key(self, sender_id: str, instance: str) -> str:
         """Gera chave única para Redis"""
@@ -164,25 +176,36 @@ class ConversationService(IConversationService):
     ) -> ResponsePackageEntity:
         """
         Processa mensagem completa:
-        1. Carrega contexto do Redis
-        2. Carrega/cria conversa no PostgreSQL
-        3. Carrega mensagens históricas se necessário
-        4. Processa com agente
-        5. Salva tudo (Redis + PostgreSQL)
+        1. Resolve qual agente usar baseado no instance (número)
+        2. Carrega contexto do Redis
+        3. Carrega/cria conversa no PostgreSQL
+        4. Carrega mensagens históricas se necessário
+        5. Processa com agente específico
+        6. Salva tudo (Redis + PostgreSQL)
         """
         logger.info(f"[{sender_id}] 📨 Processando mensagem: {text[:100]}...")
         
-        # ========== 1. CARREGA CONTEXTO DO REDIS ==========
+        # ========== 1. RESOLVE QUAL AGENTE USAR ==========
+        agent_config = await self.agent_config_service.get_by_phone_number(instance)
+        logger.info(f"[{sender_id}] 🤖 Usando agente: {agent_config.name} (personalidade: {agent_config.personality})")
+        
+        # ========== 2. CRIA ORCHESTRATOR COM CONFIG ESPECÍFICA ==========
+        agent = AgentOrchestrator(
+            llm_client=self.llm_client,
+            agent_config=agent_config
+        )
+        
+        # ========== 3. CARREGA CONTEXTO DO REDIS ==========
         context = await self._load_context_from_redis(sender_id, instance)
         
-        # ========== 2. CARREGA/CRIA CONVERSA NO POSTGRESQL ==========
+        # ========== 4. CARREGA/CRIA CONVERSA NO POSTGRESQL ==========
         conversation = await self._load_or_create_conversation(
             sender_id=sender_id,
             instance=instance,
             channel=channel
         )
         
-        # ========== 3. INICIALIZA CONTEXTO SE NÃO EXISTIR ==========
+        # ========== 5. INICIALIZA CONTEXTO SE NÃO EXISTIR ==========
         if not context:
             context = ConversationContext(sender_id=sender_id)
             logger.info(f"[{sender_id}] ✅ Novo contexto criado")
@@ -194,19 +217,19 @@ class ConversationService(IConversationService):
             # (em caso de múltiplas instâncias ou recuperação)
             await self._load_historical_messages(context, conversation.id)
         
-        # ========== 4. PROCESSA MENSAGEM COM AGENTE ==========
-        response_package = await self.agent.process_message(context, text)
+        # ========== 6. PROCESSA MENSAGEM COM AGENTE ESPECÍFICO ==========
+        response_package = await agent.process_message(context, text)
         
-        # ========== 5. SALVA CONTEXTO NO REDIS ==========
+        # ========== 7. SALVA CONTEXTO NO REDIS ==========
         await self._save_context_to_redis(context, instance, ttl_seconds=86400)
         
-        # ========== 6. SALVA MENSAGENS NO POSTGRESQL ==========
+        # ========== 8. SALVA MENSAGENS NO POSTGRESQL ==========
         await self._save_messages_to_db(
             conversation_id=conversation.id,
             user_message=text,
             assistant_message=response_package.text
         )
         
-        logger.info(f"[{sender_id}] ✅ Processamento completo")
+        logger.info(f"[{sender_id}] ✅ Processamento completo com agente '{agent_config.name}'")
         
         return response_package
